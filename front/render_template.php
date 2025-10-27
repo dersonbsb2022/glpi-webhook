@@ -82,6 +82,22 @@ try {
    // para evitar JSON inválido quando o campo não tem valor
    $rendered_normalized = preg_replace('/##[^#]+##/', '', $rendered_normalized);
 
+   // Corrigir objetos adjacentes sem vírgula (padrão comum em FOREACH): } {  ->  },{
+   $rendered_normalized = preg_replace('/}\s+{/', '},{', $rendered_normalized);
+
+   // Remover arrays vazios deixados por FOREACH sem itens: "campo": [ ],
+   $rendered_normalized = preg_replace('/["\']?\w+["\']?\s*:\s*\[\s*\],?/m', '', $rendered_normalized);
+   
+   // Remover vírgulas soltas (ex.: após remover arrays vazios ou no final de arrays/objetos)
+   $rendered_normalized = preg_replace('/,(\s*[}\]])/m', '$1', $rendered_normalized);
+
+   // Remover caracteres de controle que quebram JSON (newlines dentro de strings, tabs, etc)
+   // Substitui quebras de linha literais dentro de valores por espaço
+   $rendered_normalized = preg_replace('/(?<=: ")([^"]*)\n([^"]*)(?=")/', '$1 $2', $rendered_normalized);
+   $rendered_normalized = preg_replace('/(?<=: ")([^"]*)\r([^"]*)(?=")/', '$1 $2', $rendered_normalized);
+   // Remove outros caracteres de controle (0x00-0x1F exceto espaço)
+   $rendered_normalized = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $rendered_normalized);
+
    // Validar se a saída é JSON
    $json_valid = false;
    $json_error = null;
