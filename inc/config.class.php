@@ -120,6 +120,7 @@ class PluginWebhookConfig extends CommonDBTM {
 
       $ong = [];
       $this->addDefaultFormTab($ong);
+      $this->addStandardTab('PluginWebhookConfigTest', $ong, $options);
 //      $this->addStandardTab('PluginWebhookConfigRequest', $ong, $options);
       $this->addStandardTab('Log', $ong, $options);
 
