@@ -202,13 +202,49 @@ static public function extraRaise($params) {
 								// 6. Limpar espaços extras
 								$content = trim($content);
 								
-								// 7. Validar e re-encodar como JSON para garantir formato correto
+								// 7. PRIMEIRO: Limpar HTML para evitar JSON inválido
+								// Precisa ser feito ANTES do json_decode porque HTML com aspas quebra o JSON
+								// Usar regex para encontrar valores de strings e limpar HTML dentro delas
+								$content = preg_replace_callback(
+									'/"([^"]+)":\s*"((?:[^"\\\\]|\\\\.)*)"/s',
+									function($matches) {
+										$key = $matches[1];
+										$value = $matches[2];
+										
+										// Decodificar escapes do JSON primeiro
+										$value = stripcslashes($value);
+										
+										// Limpar HTML
+										$clean = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+										$clean = preg_replace('/<br\s*\/?>/i', "\n", $clean);
+										$clean = preg_replace('/<\/p>\s*<p[^>]*>/i', "\n\n", $clean);
+										$clean = preg_replace('/<\/p>/i', "\n", $clean);
+										$clean = preg_replace('/<p[^>]*>/i', '', $clean);
+										$clean = preg_replace('/<\/div>\s*<div[^>]*>/i', "\n", $clean);
+										$clean = preg_replace('/<\/div>/i', "\n", $clean);
+										$clean = preg_replace('/<div[^>]*>/i', '', $clean);
+										$clean = strip_tags($clean);
+										$clean = preg_replace("/\n{3,}/", "\n\n", $clean);
+										$lines = explode("\n", $clean);
+										$lines = array_map('trim', $lines);
+										$clean = implode("\n", $lines);
+										$clean = trim($clean);
+										
+										// Escapar para JSON
+										$clean = addcslashes($clean, "\"\\\n\r\t");
+										
+										return '"' . $key . '":"' . $clean . '"';
+									},
+									$content
+								);
+								
+								// 8. Validar e re-encodar como JSON para garantir formato correto
 								$decoded_content = json_decode($content, true);
 								if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_content)) {
 									// JSON válido - re-encodar com flags apropriadas
 									$content = json_encode($decoded_content, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 								}
-								// Se não for JSON válido, mantém o conteúdo original
+								// Se não for JSON válido, mantém o conteúdo processado
 								
 								$curl = curl_init($url);
 								$secrettype = $webhook_infos['additionnaloption']['plugin_webhook_secrettypes_id']; 
@@ -269,6 +305,11 @@ static public function extraRaise($params) {
 								$headers[] = 'Content-Length: ' . strlen($content);
 								curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 								curl_setopt($curl, CURLOPT_POSTFIELDS, $content);
+								
+								// LOG para debug de problemas
+								if ($webhook_infos['additionnaloption']['debug']) {
+									Toolbox::logInFile("webhook-debug", "=== JSON ENVIADO (char 1100-1200) ===" . PHP_EOL . substr($content, 1100, 100) . PHP_EOL);
+								}
 
 								$json_response = curl_exec($curl);
 

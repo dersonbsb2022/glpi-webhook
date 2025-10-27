@@ -102,6 +102,43 @@ try {
    $json_valid = false;
    $json_error = null;
    $rendered_pretty = null;
+   
+   // PRIMEIRO: Limpar HTML para evitar JSON inválido
+   // Precisa ser feito ANTES do json_decode porque HTML com aspas quebra o JSON
+   $rendered_normalized = preg_replace_callback(
+      '/"([^"]+)":\s*"((?:[^"\\\\]|\\\\.)*)"/s',
+      function($matches) {
+         $key = $matches[1];
+         $value = $matches[2];
+         
+         // Decodificar escapes do JSON primeiro
+         $value = stripcslashes($value);
+         
+         // Limpar HTML
+         $clean = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+         $clean = preg_replace('/<br\s*\/?>/i', "\n", $clean);
+         $clean = preg_replace('/<\/p>\s*<p[^>]*>/i', "\n\n", $clean);
+         $clean = preg_replace('/<\/p>/i', "\n", $clean);
+         $clean = preg_replace('/<p[^>]*>/i', '', $clean);
+         $clean = preg_replace('/<\/div>\s*<div[^>]*>/i', "\n", $clean);
+         $clean = preg_replace('/<\/div>/i', "\n", $clean);
+         $clean = preg_replace('/<div[^>]*>/i', '', $clean);
+         $clean = strip_tags($clean);
+         $clean = preg_replace("/\n{3,}/", "\n\n", $clean);
+         $lines = explode("\n", $clean);
+         $lines = array_map('trim', $lines);
+         $clean = implode("\n", $lines);
+         $clean = trim($clean);
+         
+         // Escapar para JSON
+         $clean = addcslashes($clean, "\"\\\n\r\t");
+         
+         return '"' . $key . '":"' . $clean . '"';
+      },
+      $rendered_normalized
+   );
+   
+   // Agora tentar decodificar o JSON limpo
    $decoded = json_decode($rendered_normalized, true);
    if (json_last_error() === JSON_ERROR_NONE) {
       $json_valid = true;

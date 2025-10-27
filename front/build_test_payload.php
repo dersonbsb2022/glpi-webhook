@@ -37,13 +37,10 @@ try {
 
 Toolbox::logInFile('webhook-test', "[BUILD] Ticket $ticket_id carregado.\n");
 
-// Helpers seguros
+// Helper simples - agora a limpeza HTML é feita no JSON string, não aqui
 function wh_safe($v) {
    if ($v === null) return null;
-   if (is_string($v)) {
-      // Para JSON de teste, retornar string crua é suficiente e evita avisos/erros
-      return $v;
-   }
+   // Retornar valor original - limpeza será feita no JSON final
    return $v;
 }
 
@@ -172,9 +169,49 @@ foreach ($it as $row) {
 
 Toolbox::logInFile('webhook-test', "[BUILD] Timeline coletada para ticket $ticket_id.\n");
 
+   // Encodar primeiro para obter string JSON
+   $json_string = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+   
+   // Limpar HTML do JSON string (mesma lógica da produção)
+   $json_string = preg_replace_callback(
+      '/"([^"]+)":\s*"((?:[^"\\\\]|\\\\.)*)"/s',
+      function($matches) {
+         $key = $matches[1];
+         $value = $matches[2];
+         
+         // Decodificar escapes do JSON primeiro
+         $value = stripcslashes($value);
+         
+         // Limpar HTML
+         $clean = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+         $clean = preg_replace('/<br\s*\/?>/i', "\n", $clean);
+         $clean = preg_replace('/<\/p>\s*<p[^>]*>/i', "\n\n", $clean);
+         $clean = preg_replace('/<\/p>/i', "\n", $clean);
+         $clean = preg_replace('/<p[^>]*>/i', '', $clean);
+         $clean = preg_replace('/<\/div>\s*<div[^>]*>/i', "\n", $clean);
+         $clean = preg_replace('/<\/div>/i', "\n", $clean);
+         $clean = preg_replace('/<div[^>]*>/i', '', $clean);
+         $clean = strip_tags($clean);
+         $clean = preg_replace("/\n{3,}/", "\n\n", $clean);
+         $lines = explode("\n", $clean);
+         $lines = array_map('trim', $lines);
+         $clean = implode("\n", $lines);
+         $clean = trim($clean);
+         
+         // Escapar para JSON
+         $clean = addcslashes($clean, "\"\\\n\r\t");
+         
+         return '"' . $key . '":"' . $clean . '"';
+      },
+      $json_string
+   );
+   
+   // Decodificar novamente para formatar bonito
+   $data_cleaned = json_decode($json_string, true);
+   
    echo json_encode([
       'success' => true,
-      'payload' => $data
+      'payload' => $data_cleaned
    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
    Toolbox::logInFile('webhook-test', "[BUILD] JSON enviado para ticket $ticket_id.\n");
