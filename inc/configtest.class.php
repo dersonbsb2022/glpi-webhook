@@ -264,7 +264,7 @@ JSON;
       echo "<tr class='tab_bg_1'><th colspan='4'>" . __('Template JSON with GLPI tags', 'webhook') . "</th></tr>";
       echo "<tr class='tab_bg_2'>";
       echo "<td colspan='4'>";
-        echo Html::textarea([
+        Html::textarea([
             'name'       => 'json_template_tags',
             'editor_id'  => 'json_template_tags',
             'rows'       => 14,
@@ -277,7 +277,7 @@ JSON;
       echo "<tr class='tab_bg_1'><th colspan='4'>" . __('JSON payload to send', 'webhook') . "</th></tr>";
       echo "<tr class='tab_bg_2'>";
       echo "<td colspan='4'>";
-        echo Html::textarea([
+        Html::textarea([
             'name'       => 'test_payload',
             'editor_id'  => 'test_payload',
             'rows'       => 18,

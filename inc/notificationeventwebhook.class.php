@@ -120,6 +120,8 @@ class PluginWebhookNotificationEventWebhook extends NotificationEventAbstract im
    }
 
 static public function extraRaise($params) {
+		global $CFG_GLPI;
+		
 		$notificationtargetclass = get_class($params['notificationtarget']);
 		$entity = $params['notificationtarget']->entity;
 		$event = $params['event'];
@@ -157,6 +159,12 @@ static public function extraRaise($params) {
 							if (!isset($options['additionnaloption']))
 								$options['additionnaloption'] = $webhook_infos['additionnaloption'];
 							$data = &$notificationtarget->getForTemplate($event, $options);
+							
+							// FORÇAR URL DO TICKET se não estiver presente ou vazio
+							$ticket_id = $object->getID();
+							$ticket_url = $CFG_GLPI['url_base'] . "/index.php?redirect=ticket_" . $ticket_id;
+							$data['##ticket.url##'] = $ticket_url;
+							
 							$key = $webhook_infos[static::getTargetFieldName()];
 							$url = $webhook_infos['additionnaloption']['address']; 
 							$url = NotificationTemplate::process($webhook_infos['additionnaloption']['address'], $data); // substitute variables in url
@@ -171,10 +179,37 @@ static public function extraRaise($params) {
 								else
 									$template = $template_datas['content_html'];
 
-								// escape double quotes (as the LF, CR and TAB characters)
-								$data = str_replace_deep(["\\","\n", "\r", "\t", '"'], ['\\\\', '\\n', '\\r', '\\t', '\\"'], $data);
-
 								$content = NotificationTemplate::process($template, $data);
+								
+								// Aplicar mesmas correções do render_template.php
+								// 1. Remover tags não processadas
+								$content = preg_replace('/##[^#]+##/', '', $content);
+								
+								// 2. Adicionar vírgulas entre objetos adjacentes (FOREACH sem vírgulas)
+								// Tratar múltiplos espaços e quebras de linha entre } e {
+								$content = preg_replace('/}\s*{/', '},{', $content);
+								
+								// 3. Remover arrays vazios
+								$content = preg_replace('/["\']?\w+["\']?\s*:\s*\[\s*\],?/m', '', $content);
+								
+								// 4. Remover quebras de linha dentro de strings JSON
+								$content = preg_replace('/(?<=: ")([^"]*)\n([^"]*)(?=")/', '$1 $2', $content);
+								$content = preg_replace('/(?<=: ")([^"]*)\r([^"]*)(?=")/', '$1 $2', $content);
+								
+								// 5. Remover caracteres de controle
+								$content = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $content);
+								
+								// 6. Limpar espaços extras
+								$content = trim($content);
+								
+								// 7. Validar e re-encodar como JSON para garantir formato correto
+								$decoded_content = json_decode($content, true);
+								if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_content)) {
+									// JSON válido - re-encodar com flags apropriadas
+									$content = json_encode($decoded_content, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+								}
+								// Se não for JSON válido, mantém o conteúdo original
+								
 								$curl = curl_init($url);
 								$secrettype = $webhook_infos['additionnaloption']['plugin_webhook_secrettypes_id']; 
 								$headers = array();
@@ -183,14 +218,14 @@ static public function extraRaise($params) {
 									case 1: // No Authentication
 									$headers = 
 										[
-										'Content-type: application/json'
+										'Content-Type: application/json; charset=UTF-8'
 										];
 									break;
 
 									case 2: // Basic Authentication
 									$headers = 
 										[
-										'Content-type: application/json',
+										'Content-Type: application/json; charset=UTF-8',
 										'Authorization: Basic '.$webhook_infos['additionnaloption']['user'] .":".$webhook_infos['additionnaloption']['secret']
 										];
 									break;
@@ -198,19 +233,41 @@ static public function extraRaise($params) {
 									case 3: // Basic Authentication with base64 encoding
 									$headers = 
 										[
-										'Content-type: application/json',
+										'Content-Type: application/json; charset=UTF-8',
 										'Authorization: Basic '.base64_encode(htmlspecialchars_decode($webhook_infos['additionnaloption']['user']).":".htmlspecialchars_decode($webhook_infos['additionnaloption']['secret']))
 										];
 									break;
 
 									case 4: // JSON Web Token
+									$headers = 
+										[
+										'Content-Type: application/json; charset=UTF-8'
+										];
+									if (!empty($webhook_infos['additionnaloption']['secret'])) {
+										$headers[] = 'Authorization: Bearer ' . $webhook_infos['additionnaloption']['secret'];
+									}
 									break;
 								}
 								
+								// Garantir que sempre tenha Content-Type
+								if (empty($headers)) {
+									$headers = ['Content-Type: application/json; charset=UTF-8'];
+								}
+								
+								// Primeira configuração
 								curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 								curl_setopt($curl, CURLOPT_HEADER, false);
 								curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
 								curl_setopt($curl, CURLOPT_POST, true);
+								curl_setopt($curl, CURLOPT_POSTFIELDS, $content);
+								curl_setopt($curl, CURLOPT_TIMEOUT, 30);
+								curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 10);
+								curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+								curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+								
+								// Adicionar Content-Length e reconfigurar (IGUAL AO TESTE)
+								$headers[] = 'Content-Length: ' . strlen($content);
+								curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 								curl_setopt($curl, CURLOPT_POSTFIELDS, $content);
 
 								$json_response = curl_exec($curl);
